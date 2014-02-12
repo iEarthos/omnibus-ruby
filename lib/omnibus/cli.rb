@@ -18,6 +18,7 @@
 require 'thor'
 require 'omnibus/version'
 require 'mixlib/shellout'
+require 'tempfile'
 
 module Omnibus
   class CLI < Thor
@@ -34,10 +35,45 @@ module Omnibus
       :default => Dir.pwd,
       :desc => "Path to Omnibus project root."
 
-    desc "build PROJECT", "Build the given Omnibus project"
-    def build(project)
+    desc "build project PROJECT", "Build the given Omnibus project"
+    def build(dont_use_me, project)
       if looks_like_omnibus_project?(options[:path])
         say("Building #{project}", :green)
+
+        say("*" * 50, :yellow)
+        say("Andra Compatibility Mode", :yellow)
+        say("*" * 50, :yellow)
+        say("Checking omnibus.rb for compatibility...", :yellow)
+
+        tmp = Tempfile.new("omnibus.rb")
+        File.open("omnibus.rb", "r+") do |f|
+          # check the first line for compatibility with old omnibus
+          head = f.readline
+          if head =~ /Omnibus\.configure/
+            say("omnibus.rb is compatible, continuing...", :yellow)
+          else
+            say("omnibus.rb is incomatible, updating...", :yellow)
+            say("Backing up omnibus.rb to omnibus.rb.backup...", :yellow)
+            FileUtils.cp("omnibus.rb", "omnibus.rb.backup")
+
+            tmp.puts("Omnibus.configure do |o|")
+            f.rewind
+            f.each_line do |line|
+              # throw away empty lines
+              next if line.strip.empty?
+
+              # change method calls to attribute setters
+              newline = line.split(/\s/, 2).join(" = ")
+              tmp.puts("o.#{newline}")
+            end
+            tmp.puts("end")
+          end
+        end
+        tmp.close()
+        FileUtils.mv(tmp.path, "omnibus.rb")
+
+        say("*" * 50, :yellow)
+
         unless options[:timestamp]
           say("I won't append a timestamp to the version identifier.", :yellow)
         end
